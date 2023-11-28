@@ -435,7 +435,8 @@ def main():
     Test_episodes_number = 30  # number of test episodes
     T = 60 #total time slots (steps)
     T_AS = np.arange(0, T, 200) # time solt of user association, current setting indicate 1
-
+    
+    print("time slots",T_AS)
     env = SystemModel()
     agent = DQN()
 
@@ -452,7 +453,7 @@ def main():
         p=0 # punishment counter
 
         for t in range(T):
-
+            # 原来的数组是[0]，结合代码就相当于每个episode刚开始的时候做一次
             if t in T_AS:
                 User_AS_List = agent.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
 
@@ -508,18 +509,18 @@ def main():
         print('Episode=',episode,'Epsilon=',Epsilon,'Punishment=',p,'Through_put=',Through_put)
 
     # save data
-    np.save("Through_put_OMA.npy", Through_put_seq)
-    np.save("WorstUser_Through_put_OMA.npy", Worstuser_TP_seq)
-    np.save("Total Data Rate_OMA.npy", datarate_seq)
-    np.save("PositionOfUsers_end_OMA.npy",env.PositionOfUsers)
-    np.save("PositionOfUAVs_end_OMA.npy", env.PositionOfUAVs)
+    np.save("data/Through_put_OMA.npy", Through_put_seq)
+    np.save("data/WorstUser_Through_put_OMA.npy", Worstuser_TP_seq)
+    np.save("data/Total Data Rate_OMA.npy", datarate_seq)
+    np.save("data/PositionOfUsers_end_OMA.npy",env.PositionOfUsers)
+    np.save("data/PositionOfUAVs_end_OMA.npy", env.PositionOfUAVs)
 
     # print throughput
     x_axis = range(1,Episodes_number+1)
     plt.plot(x_axis, Through_put_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Though put')
-    plt.savefig('./ Through_put_OMA.png')
+    plt.savefig('figure/Through_put_OMA.png')
     plt.show()
 
     # print throughput of worst users
@@ -527,7 +528,7 @@ def main():
     plt.plot(x_axis, Worstuser_TP_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Though put of Worst User')
-    plt.savefig('./ WorstUser_Through_put_OMA.png')
+    plt.savefig('figure/WorstUser_Through_put_OMA.png')
     plt.show()
 
     # print datarate of the last episode(test episode when Epsilon = 0)
@@ -535,7 +536,7 @@ def main():
     plt.plot(x_axis_T, datarate_seq)
     plt.xlabel('Steps in test epsodes')
     plt.ylabel('Data Rate of System')
-    plt.savefig('./ Total Data Rate_OMA.png')
+    plt.savefig('figure/Total Data Rate_OMA.png')
     plt.show()
 
 

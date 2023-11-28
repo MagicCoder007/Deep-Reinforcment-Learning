@@ -4,6 +4,7 @@ import pandas as pd
 from sklearn.cluster import KMeans
 import warnings
 from collections import deque
+import tensorflow as tf
 from tensorflow.keras import models, layers, optimizers
 import random
 import copy
@@ -63,8 +64,10 @@ class SystemModel(object):
            np.random.random((3,NumberOfUsers)),
           columns=self.K_idx.tolist(),    # Data frame for saving users' position
         )
-        self.PositionOfUsers.iloc[0,:] = [204.91, 493.51, 379.41, 493.46, 258.97, 53.33] # users' initial x
-        self.PositionOfUsers.iloc[1, :] = [219.75, 220.10, 49.81, 118.10, 332.59, 183.11] # users' initial y
+        # self.PositionOfUsers.iloc[0,:] = [204.91, 493.51, 379.41, 493.46, 258.97, 53.33] # users' initial x
+        # self.PositionOfUsers.iloc[1, :] = [219.75, 220.10, 49.81, 118.10, 332.59, 183.11] # users' initial y
+        self.PositionOfUsers.iloc[0,:] =  np.random.randint(0,500,6)
+        self.PositionOfUsers.iloc[1, :] = np.random.randint(0,500,6)
         self.PositionOfUsers.iloc[2, :] = 0 # users' hight is assumed to be 0
 
         # record initial state
@@ -383,7 +386,9 @@ class DQN(object):
             Q[i][a] = (1 - lr) * Q[i][a] + lr * (reward + factor * np.amax(Q_next[i]))
 
         self.model.fit(s_batch, Q, verbose=0)   # DNN training
-
+    
+    def save(self,name):
+        self.model.save(name)
 
     def User_association(self,UAV_Position,User_Position,UAVsnumber, Usersnumber):
         # this function is for user association
@@ -475,7 +480,8 @@ def main():
     Test_episodes_number = 30  # number of test episodes
     T = 60 #total time slots (steps)
     T_AS = np.arange(0, T, 200) # time solt of user association, current setting indicate 1
-
+    # T_AS = np.arange(0, T, 0.25) # time solt of user association, current setting indicate 1
+    print(T_AS)
     env = SystemModel() # crate an environment
     agent = DQN() # crate an agent
 
@@ -484,6 +490,7 @@ def main():
     WorstuserRate_seq = np.zeros(T) # Initialize memory to store data rate of the worst user
     Through_put_seq = np.zeros(Episodes_number) # Initialize memory to store throughput
     Worstuser_TP_seq = np.zeros(Episodes_number) # Initialize memory to store throughput of the worst user
+    agent.save("init")
 
     for episode in range(Episodes_number):
         env.Reset_position()
@@ -548,20 +555,20 @@ def main():
         Worstuser_TP_seq[episode] = Worstuser_TP # save throughput of the worst user for an episode
 
         print('Episode=',episode,'Epsilon=',Epsilon,'Punishment=',p,'Through_put=',Through_put)
-
+    agent.save("agent")
     # save data
-    np.save("Through_put_NOMA.npy", Through_put_seq)
-    np.save("WorstUser_Through_put_NOMA.npy", Worstuser_TP_seq)
-    np.save("Total Data Rate_NOMA.npy", datarate_seq)
-    np.save("PositionOfUsers_end_NOMA.npy",env.PositionOfUsers)
-    np.save("PositionOfUAVs_end_NOMA.npy", env.PositionOfUAVs)
+    np.save("data/Through_put_NOMA.npy", Through_put_seq)
+    np.save("data/WorstUser_Through_put_NOMA.npy", Worstuser_TP_seq)
+    np.save("data/Total Data Rate_NOMA.npy", datarate_seq)
+    np.save("data/PositionOfUsers_end_NOMA.npy",env.PositionOfUsers)
+    np.save("data/PositionOfUAVs_end_NOMA.npy", env.PositionOfUAVs)
 
     # print throughput
     x_axis = range(1,Episodes_number+1)
     plt.plot(x_axis, Through_put_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Throughput')
-    plt.savefig('./ Throughput_NOMA.png')
+    plt.savefig('figure/Throughput_NOMA.png')
     plt.show()
 
     # print throughput of worst users
@@ -569,7 +576,7 @@ def main():
     plt.plot(x_axis, Worstuser_TP_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Throughput of Worst User')
-    plt.savefig('./ WorstUser_Through_put_NOMA.png')
+    plt.savefig('figure/WorstUser_Through_put_NOMA.png')
     plt.show()
 
     # print datarate of the last episode(test episode when Epsilon = 0)
@@ -577,7 +584,7 @@ def main():
     plt.plot(x_axis_T, datarate_seq)
     plt.xlabel('Steps in test epsodes')
     plt.ylabel('Data Rate of System')
-    plt.savefig('./ Total Data Rate_NOMA.png')
+    plt.savefig('figure/Total Data Rate_NOMA.png')
     plt.show()
 
 if __name__ == '__main__':
