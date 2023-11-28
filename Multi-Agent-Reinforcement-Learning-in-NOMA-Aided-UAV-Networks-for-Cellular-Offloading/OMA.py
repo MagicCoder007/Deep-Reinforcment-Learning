@@ -1,13 +1,15 @@
 import numpy as np
 import math
 import pandas as pd
-from sklearn.cluster import KMeans
 import warnings
 from collections import deque
 from tensorflow.keras import models, layers, optimizers
-import random
 import copy
 import matplotlib.pyplot as plt
+from DQN import DQN
+import Kmeans as km
+
+
 
 #random seed control if necessary
 #np.random.seed(1)
@@ -282,154 +284,6 @@ class SystemModel(object):
             self.Power_allocation_list.iloc[0, User1] = self.Power_unit*4
 
 
-class DQN(object):
-    def __init__(self):
-        self.update_freq = 600  # Model update frequency of the target network
-        self.replay_size = 10000  # replay buffer size
-        self.step = 0
-        self.replay_queue = deque(maxlen=self.replay_size)
-
-        self.power_number = 3 ** UserNumberPerCell # 3 power actions
-        self.action_number = 7 * self.power_number # 7 positional actions
-
-        self.model = self.create_model() # crate model
-        self.target_model = self.create_model() # crate target model
-
-    def create_model(self):
-        #Create a neural network with a input, hidden, and output layer
-        STATE_DIM = NumberOfUAVs*3 + NumberOfUsers # input layer dim
-        ACTION_DIM = 7 * self.power_number # output layer dim
-        model = models.Sequential([
-        layers.Dense(40, input_dim=STATE_DIM, activation='relu'),
-        layers.Dense(ACTION_DIM, activation="linear")
-        ])
-        model.compile(loss='mean_squared_error',
-                      optimizer=optimizers.Adam(learning_rate=0.001)) #Set the optimmizer and learning rate here
-        return model
-
-
-    def Choose_action(self, s, epsilon):
-        # Choose actions according to e-greedy algorithm
-        if np.random.uniform() < epsilon:
-            return np.random.choice(self.action_number)
-        else:
-            return np.argmax(self.model.predict(s))
-
-
-    def remember(self, s, a, next_s, reward):
-        # save MDP transitions
-        self.replay_queue.append((s, a, next_s, reward))
-
-
-    def train(self,batch_size = 128, lr=1 ,factor = 1):
-        if len(self.replay_queue) < self.replay_size:
-            return # disable learning until buffer full
-        self.step += 1
-
-        # Over 'update_freq' steps, assign the weight of the model to the target_model
-        if self.step % self.update_freq == 0:
-            self.target_model.set_weights(self.model.get_weights())
-
-        replay_batch = random.sample(self.replay_queue, batch_size)
-        s_batch = np.array([replay[0] for replay in replay_batch])
-        next_s_batch = np.array([replay[2] for replay in replay_batch])
-
-        Q = self.model.predict(s_batch) # calculate Q value
-        Q_next = self.target_model.predict(next_s_batch) # predict Q value
-
-        # update Q value following bellamen function
-        for i, replay in enumerate(replay_batch):
-            _, a, _, reward = replay
-            Q[i][a] = (1 - lr) * Q[i][a] + lr * (reward + factor * np.amax(Q_next[i]))
-
-        self.model.fit(s_batch, Q, verbose=0)   # DNN training
-
-
-    def User_association(self,UAV_Position,User_Position,UAVsnumber, Usersnumber):
-        # this function is for user association
-        User_Position_array = np.zeros([Usersnumber,2])
-        # convert data type
-        User_Position_array[:, 0] = User_Position.iloc[0,:].T
-        User_Position_array[:, 1] = User_Position.iloc[1,:].T
-
-        K_means_association = KMeans(n_clusters=UAVsnumber).fit(User_Position_array)  # K-means approach for user association
-        User_cluster = K_means_association.labels_
-        Cluster_center = K_means_association.cluster_centers_
-
-        # check if the clusters are with equal users
-        for dectecter in range(UAVsnumber):
-            user_numberincluster=np.where(User_cluster == dectecter)[0]
-            if len(user_numberincluster) == (Usersnumber/UAVsnumber):
-                 pass
-            else:
-                cluster_redun = []
-                cluster_lack = []
-                Cluster_center_of_lack=[]
-
-                for ck_i in range(len(Cluster_center)): # Find clusters with more or less elements
-                    User_for_cluster_i = np.where(User_cluster==ck_i)
-
-                    if np.size(User_for_cluster_i) > (Usersnumber/UAVsnumber): # Find clusters with redundant elements
-                        for i in range(int(np.size(User_for_cluster_i)-(Usersnumber/UAVsnumber))):
-                            cluster_redun.append(ck_i)
-
-                    if np.size(User_for_cluster_i) < (Usersnumber/UAVsnumber): # Find clusters short elements
-                        for i in range(int((Usersnumber/UAVsnumber)-np.size(User_for_cluster_i))):
-                            cluster_lack.append(ck_i)
-                            Cluster_center_of_lack.append(Cluster_center[ck_i, :])
-
-                # Assign redundant users to the cluster short users
-                for fixer_i in range(np.size(cluster_lack)):
-                    cluster_lack_fixing = cluster_lack[fixer_i]
-                    Lacker_Center = Cluster_center_of_lack[fixer_i]
-                    Redun_cluster = cluster_redun[fixer_i]
-                    Redun_cluster_user = np.where(User_cluster==Redun_cluster) # find redundant users
-                    Redun_cluster_user_postion = User_Position_array[Redun_cluster_user,:] # find redundant users' position
-                    distence_U2C = np.zeros(np.size(Redun_cluster_user)) # Find the closest to the few user groups
-
-                    for find_i in range(np.size(Redun_cluster_user)):
-                        distence_U2C[find_i] = np.linalg.norm(Redun_cluster_user_postion[:,find_i]-Lacker_Center)
-
-                    min_distence_user_order = np.where(distence_U2C==np.min(distence_U2C))
-                    Redun_cluster_user_list = Redun_cluster_user[0] # Data type conversion
-
-                    Min_d_User_idx = Redun_cluster_user_list[int(min_distence_user_order[0])]
-                    User_cluster_fixed = User_cluster
-                    User_cluster_fixed[Min_d_User_idx] = cluster_lack_fixing
-
-                User_cluster = User_cluster_fixed
-
-        if sum(User_cluster) != (UAVsnumber - 1) * Usersnumber / 2:
-            warnings.warn("User association wrong")
-
-        # Choose the nearest UAV for each user clusters
-        UAV_Position_array = np.zeros([UAVsnumber, 2])
-        UAV_Position_array[:, 0] = UAV_Position.iloc[0, :].T
-        UAV_Position_array[:, 1] = UAV_Position.iloc[1, :].T
-
-        User_association_list = pd.DataFrame(
-            np.zeros((1, Usersnumber)),
-            columns=np.arange(Usersnumber).tolist(),
-        )  # data frame for saving user association indicators
-
-        for UAV_name in range(UAVsnumber):
-            distence_UAVi2C = np.zeros(UAVsnumber)
-            for cluster_center_i in range(UAVsnumber):
-                distence_UAVi2C[cluster_center_i] = np.linalg.norm(UAV_Position_array[UAV_name,: ] - Cluster_center[cluster_center_i])
-            Servied_cluster = np.where(distence_UAVi2C==np.min(distence_UAVi2C)) # aoosciate UAV_name with the closest cluster
-            Cluster_center[Servied_cluster] = 9999  # remove the selected cluster
-            Servied_cluster_list = Servied_cluster[0]
-            Servied_users = np.where(User_cluster==Servied_cluster_list)
-            Servied_users_list = Servied_users[0]
-
-            for i in range(np.size(Servied_users)):
-                User_association_list.iloc[0,Servied_users_list[i]] = int(UAV_name) # fill UAV names in User_association_list
-
-            User_association_list = User_association_list.astype('int') #converted data type to int
-
-        return User_association_list
-
-
 def main():
     Episodes_number = 150 # total episodes number
     Test_episodes_number = 30  # number of test episodes
@@ -438,8 +292,7 @@ def main():
     
     print("time slots",T_AS)
     env = SystemModel()
-    agent = DQN()
-
+    agent = DQN(UserNumberPerCell,NumberOfUAVs,NumberOfUsers) # crate an agent
     Epsilon = 0.9
     datarate_seq = np.zeros(T) # Initialize memory to store sum data rate
     WorstuserRate_seq = np.zeros(T) # Initialize memory to store data rate of the worst user
@@ -455,7 +308,7 @@ def main():
         for t in range(T):
             # 原来的数组是[0]，结合代码就相当于每个episode刚开始的时候做一次
             if t in T_AS:
-                User_AS_List = agent.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
+                User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
 
             for UAV in range(NumberOfUAVs):
                 Distence_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
