@@ -2,14 +2,11 @@ import numpy as np
 import math
 import pandas as pd
 import warnings
-from collections import deque
-from tensorflow.keras import models, layers, optimizers
 import copy
 import matplotlib.pyplot as plt
 from DQN import DQN
 import Kmeans as km
-
-
+import pathlib
 
 #random seed control if necessary
 #np.random.seed(1)
@@ -114,6 +111,13 @@ class SystemModel(object):
 
 
     def User_randomMove(self,MAXspeed,NumberofUsers):
+        """
+        使用随机算法移动用户
+
+        Args:
+            MAXspeed (_type_): 最大移动速率
+            NumberofUsers (_type_): 用户数量
+        """
         self.PositionOfUsers.iloc[[0,1],:] += np.random.randn(2,NumberofUsers)*MAXspeed# users random move
         return
 
@@ -128,11 +132,25 @@ class SystemModel(object):
 
 
     def Get_Propergation_Loss(self,distence_U2K,UAV_Position,UAVsnumber,Usersnumber,f_c): # this function is for calculating the pathloss between users and UAVs
+        """
+        参考Propagation Model
 
-        for i in range(UAVsnumber):# Calculate average loss for each user,  this pathloss model is for 22.5m<h<300m d(2d)<4km
+        Args:
+            distence_U2K (_type_): _description_
+            UAV_Position (_type_): _description_
+            UAVsnumber (_type_): _description_
+            Usersnumber (_type_): _description_
+            f_c (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # Calculate average loss for each user,  this pathloss model is for 22.5m<h<300m d(2d)<4km
+        for i in range(UAVsnumber):
             for j in range(Usersnumber):
                 UAV_Hight=UAV_Position.iloc[2,i]
-                D_H = np.sqrt(np.square(distence_U2K.iloc[i,j])-np.square(UAV_Hight)) # calculate distance
+                # calculate distance
+                D_H = np.sqrt(np.square(distence_U2K.iloc[i,j])-np.square(UAV_Hight)) 
                 # calculate the possibility of LOS/NLOS
                 d_0 = np.max([(294.05*math.log(UAV_Hight,10)-432.94),18])
                 p_1 = 233.98*math.log(UAV_Hight,10) - 0.95
@@ -140,16 +158,14 @@ class SystemModel(object):
                     P_Los = 1.0
                 else:
                     P_Los = d_0/D_H + math.exp(-(D_H/p_1)*(1-(d_0/D_H)))
-
                 if P_Los>1:
                     P_Los = 1
-
                 P_NLos = 1 - P_Los
-
-                # calculate the passlos for LOS/NOLS
+                # calculate the passloss for LOS/NOLS
                 L_Los = 30.9 + (22.25-0.5*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10) + 20*math.log(f_c,10)
                 L_NLos = np.max([L_Los,32.4+(43.2-7.6*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10)+20*math.log(f_c,10)])
-                Avg_Los = P_Los*L_Los + P_NLos*L_NLos # average pathloss
+                # average pathloss
+                Avg_Los = P_Los*L_Los + P_NLos*L_NLos 
                 gain = np.random.rayleigh(scale=1, size=None)*pow(10,(-Avg_Los/10)) # random fading
                 self.Propergation_Loss.iloc[i,j] = gain #save pathloss
 
@@ -298,7 +314,8 @@ def main():
     WorstuserRate_seq = np.zeros(T) # Initialize memory to store data rate of the worst user
     Through_put_seq = np.zeros(Episodes_number) # Initialize memory to store throughput
     Worstuser_TP_seq = np.zeros(Episodes_number) # Initialize memory to store throughput of the worst user
-
+    path = pathlib.Path(__file__).parent.resolve()
+    agent.save(path.joinpath("model").joinpath("OMA_init"))
     for episode in range(Episodes_number):
         env.Reset_position()
         #if Epsilon > 0.05: # determine the minimum Epsilon value
@@ -311,14 +328,19 @@ def main():
                 User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
 
             for UAV in range(NumberOfUAVs):
+                # 计算距离
                 Distence_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
+                # 计算信道衰落
                 PL_for_CG = env.Get_Propergation_Loss(Distence_CG, env.PositionOfUAVs, NumberOfUAVs, NumberOfUsers, F_c) # Calculate the pathloss for each UAV-users
+                # 计算信道增益
                 CG = env.Get_Channel_Gain_OMA(NumberOfUAVs, NumberOfUsers, PL_for_CG, User_AS_List,NoisePower)  # Calculate the channel gain for each UAV-users
-
+                # 计算状态
                 State = env.Create_state_Noposition(UAV,User_AS_List,CG) # Generate S_t according to UAVs location and channels
+                # Agent预测动作
                 action_name = agent.Choose_action(State,Epsilon) # agent calculate action
+                # 执行动作
                 env.take_action(action_name,UAV,User_AS_List) # take action in the environment
-
+                # 计算执行动作之后的情况
                 Distence = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
                 P_L = env.Get_Propergation_Loss(Distence,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
                 SINR=env.Get_SINR_OMA(NumberOfUAVs,NumberOfUsers,P_L,User_AS_List,NoisePower) # calculate SINR for users
@@ -326,22 +348,24 @@ def main():
                 #print(DataRate,'Sumrate==',SumRate,'\nWorstuserRate=',WorstuserRate)
 
                 # calculate raward based on sum rate and check if users meet the QOS requirement
+                # 计算Reward
                 Reward = SumRate
                 if WorstuserRate < R_require:
                     Reward = Reward/2
                     p += 1
-
+                # 下一个状态情况
                 CG_next = env.Get_Channel_Gain_OMA(NumberOfUAVs, NumberOfUsers, P_L, User_AS_List,NoisePower) # Calculate the equivalent channel gain for S_{t+1}
                 Next_state = env.Create_state_Noposition(UAV,User_AS_List,CG_next) # Generate S_{t+1}
-
+                # 组织经验
                 #copy data for (S_t,A_t,S_t+1,R_t)
                 State_for_memory = copy.deepcopy(State[0])
                 Action_for_memory = copy.deepcopy(action_name)
                 Next_state_for_memory = copy.deepcopy(Next_state[0])
                 Reward_for_memory = copy.deepcopy(Reward)
-
+                # 存储并训练
                 agent.remember(State_for_memory, Action_for_memory, Next_state_for_memory, Reward_for_memory) #save the MDP transitions as (S_t,A_t,S_t+1,R_t)
                 agent.train() #train the DQN agent
+                # 移动用户
                 env.User_randomMove(MAXUserspeed,NumberOfUsers) # move users
 
                 # print('UE',env.PositionOfUsers) #检查UE位置
@@ -360,7 +384,7 @@ def main():
         Worstuser_TP_seq[episode] = Worstuser_TP # save throughput of the worst user for an episode
 
         print('Episode=',episode,'Epsilon=',Epsilon,'Punishment=',p,'Through_put=',Through_put)
-
+    agent.save(path.joinpath("model").joinpath("OMA_agent"))
     # save data
     np.save("data/Through_put_OMA.npy", Through_put_seq)
     np.save("data/WorstUser_Through_put_OMA.npy", Worstuser_TP_seq)

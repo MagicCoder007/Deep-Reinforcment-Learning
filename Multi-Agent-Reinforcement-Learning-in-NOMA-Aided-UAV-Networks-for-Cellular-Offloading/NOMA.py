@@ -6,6 +6,8 @@ import copy
 import matplotlib.pyplot as plt
 import Kmeans as km
 from DQN import DQN
+import pathlib
+
 
 
 #random seed control if necessary
@@ -47,8 +49,8 @@ class SystemModel(object):
         self.UserperCell = UserNumberPerCell
         self.U_idx = np.arange(NumberOfUAVs) # set up serial number for UAVs
         self.PositionOfUAVs = pd.DataFrame(
-           np.zeros((3,NumberOfUAVs)),
-          columns=self.U_idx.tolist(),    # Data frame for saving UAVs' position
+            np.zeros((3,NumberOfUAVs)),
+            columns=self.U_idx.tolist(),    # Data frame for saving UAVs' position
         )
         self.PositionOfUAVs.iloc[0, :] = [100, 200, 400]  # UAVs' initial x
         self.PositionOfUAVs.iloc[1, :] = [100, 400, 200]  # UAVs' initial y
@@ -58,8 +60,8 @@ class SystemModel(object):
         self.User_number = NumberOfUsers
         self.K_idx = np.arange(NumberOfUsers) # set up serial number for users
         self.PositionOfUsers = pd.DataFrame(
-           np.random.random((3,NumberOfUsers)),
-          columns=self.K_idx.tolist(),    # Data frame for saving users' position
+            np.random.random((3,NumberOfUsers)),
+            columns=self.K_idx.tolist(),    # Data frame for saving users' position
         )
         # self.PositionOfUsers.iloc[0,:] = [204.91, 493.51, 379.41, 493.46, 258.97, 53.33] # users' initial x
         # self.PositionOfUsers.iloc[1, :] = [219.75, 220.10, 49.81, 118.10, 332.59, 183.11] # users' initial y
@@ -182,30 +184,36 @@ class SystemModel(object):
 
     def Get_SINR_NNOMA(self,UAVsnumber,Usersnumber,PropergationLosslist,UserAssociationlist,ChannelGain_list,Noise_Power):
         #This function is to calculate the SINR for every users
-
         for j in range(Usersnumber): # j represents the interfered user,  'i_Server_UAV' represents the uav providing the service 'j_idx' represents the other users
             i_Server_UAV = UserAssociationlist.iloc[0,j]
             Signal_power = self.Power_allocation_list.iloc[0,j] * PropergationLosslist.iloc[i_Server_UAV,j] # read the sinal power from power allocation list
             I_inter_cluster = 0
-
             for j_idx in range(Usersnumber): # calculate Interference for user j
                 if UserAssociationlist.iloc[0,j_idx] == i_Server_UAV:
                     if ChannelGain_list.iloc[0,j] < ChannelGain_list.iloc[0,j_idx] and j!=j_idx: #find 'stronger' users in same cluster to count intra cluster interference
                         I_inter_cluster = I_inter_cluster + (
                                     self.Power_allocation_list.iloc[0, j_idx] * PropergationLosslist.iloc[
                                 i_Server_UAV, j])  #calculate intra cluster interference
-
                 else:
                     Inter_UAV = UserAssociationlist.iloc[0,j_idx] # calculate inter cluster interference from other UAVs
                     I_inter_cluster = I_inter_cluster + (self.Power_allocation_list.iloc[0,j_idx] * PropergationLosslist.iloc[Inter_UAV,j])#
-
             SINR = Signal_power/(I_inter_cluster + Noise_Power) # calculate SINR and save it
             self.SINR_list.iloc[0,j] = SINR
 
         return self.SINR_list
 
 
-    def Calcullate_Datarate(self,SINRlist,Usersnumber,B): # calculate data rate for all users
+    def Calculate_Datarate(self,SINRlist,Usersnumber,B): # calculate data rate for all users
+        """
+        计算速率        
+        Args:
+            SINRlist (_type_): SINR数组
+            Usersnumber (_type_): 用户数量
+            B (_type_): 带宽
+
+        Returns:
+            _type_: _description_
+        """
         for j in range(Usersnumber):
             if SINRlist.iloc[0,j] <=0:
                 print(SINRlist)
@@ -217,12 +225,26 @@ class SystemModel(object):
 
 
     def Reset_position(self): # save initial state for environment reset
+        """
+        用户和UAV设置成初始位置
+        """
         self.PositionOfUsers = copy.deepcopy(self.Init_PositionOfUsers)
         self.PositionOfUAVs = copy.deepcopy(self.Init_PositionOfUAVs)
         return
 
 
     def Create_state_Noposition(self,serving_UAV,User_association_list,User_Channel_Gain):
+        """
+        创建状态
+
+        Args:
+            serving_UAV (_type_): _description_
+            User_association_list (_type_): _description_
+            User_Channel_Gain (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         # Create state, pay attention we need to ensure UAVs and users who are making decisions always input at the fixed neural node to achieve MDQN
         UAV_position_copy = copy.deepcopy(self.PositionOfUAVs.values)
         UAV_position_copy[:,[0,serving_UAV]] = UAV_position_copy[:,[serving_UAV,0]] # adjust the input node of serving UAV to ensure it is fixed
@@ -320,7 +342,8 @@ def main():
     WorstuserRate_seq = np.zeros(T) # Initialize memory to store data rate of the worst user
     Through_put_seq = np.zeros(Episodes_number) # Initialize memory to store throughput
     Worstuser_TP_seq = np.zeros(Episodes_number) # Initialize memory to store throughput of the worst user
-    agent.save("model/init")
+    path = pathlib.Path(__file__).parent.resolve()
+    agent.save(path.joinpath("model").joinpath("NOMA_init"))
     for episode in range(Episodes_number):
         env.Reset_position()
         #if Epsilon > 0.05: # determine the minimum Epsilon value
@@ -340,7 +363,7 @@ def main():
                 Distence = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
                 P_L = env.Get_Propergation_Loss(Distence,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
                 SINR=env.Get_SINR_NNOMA(NumberOfUAVs,NumberOfUsers,P_L,User_AS_List,Eq_CG,NoisePower) # calculate SINR for users
-                DataRate,SumRate,WorstuserRate = env.Calcullate_Datarate(SINR, NumberOfUsers, Bandwidth) # calculate data rate, sum rate and the worstusers data rate
+                DataRate,SumRate,WorstuserRate = env.Calculate_Datarate(SINR, NumberOfUsers, Bandwidth) # calculate data rate, sum rate and the worstusers data rate
                 #print(DataRate,'\nSumrate==',SumRate,'\nWorstuserRate=',WorstuserRate)
                 # calculate raward based on sum rate and check if users meet the QOS requirement
                 Reward = SumRate
@@ -369,7 +392,7 @@ def main():
         Through_put_seq[episode] = Through_put # save throughput for an episode
         Worstuser_TP_seq[episode] = Worstuser_TP # save throughput of the worst user for an episode
         print('Episode=',episode,'Epsilon=',Epsilon,'Punishment=',p,'Through_put=',Through_put)
-    agent.save("model/agent")
+    agent.save(path.joinpath("model").joinpath("NOMA_agent"))
     # save data
     np.save("data/Through_put_NOMA.npy", Through_put_seq)
     np.save("data/WorstUser_Through_put_NOMA.npy", Worstuser_TP_seq)

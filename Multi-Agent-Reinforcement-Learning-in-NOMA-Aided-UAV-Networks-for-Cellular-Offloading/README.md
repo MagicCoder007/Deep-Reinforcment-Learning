@@ -12,3 +12,9 @@ case and the file 'UAV-DQN-OMA-NOTE2' assumes OMA shceme for UAVs.
 4. The version used for the last test of this code package is
 python version 3.7.4
 Tensorflow version 2.1.0
+
+## 重构后
+增加三个文件夹
+data 存放数据
+figure 存放图片
+model 存放模型文件

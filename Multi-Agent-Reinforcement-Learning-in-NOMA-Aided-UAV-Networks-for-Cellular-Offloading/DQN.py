@@ -32,8 +32,8 @@ class DQN(object):
         STATE_DIM = self.NumberOfUAVs*3 + self.NumberOfUsers # input layer dim
         ACTION_DIM = 7 * self.power_number # output layer dim
         model = models.Sequential([
-        layers.Dense(40, input_dim=STATE_DIM, activation='relu'),
-        layers.Dense(ACTION_DIM, activation="linear")
+            layers.Dense(40, input_dim=STATE_DIM, activation='relu'),
+            layers.Dense(ACTION_DIM, activation="linear")
         ])
         model.compile(loss='mean_squared_error',
                       optimizer=optimizers.Adam(learning_rate=0.001)) #Set the optimmizer and learning rate here
