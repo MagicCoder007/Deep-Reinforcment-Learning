@@ -5,9 +5,12 @@ import warnings
 import copy
 import matplotlib.pyplot as plt
 from DQN import DQN
-import Kmeans as km
+import user_association as ua
 import pathlib
 
+
+# ================================ #
+# 定义一些常数
 #random seed control if necessary
 #np.random.seed(1)
 
@@ -32,6 +35,8 @@ Power_level= 3 # Since DQN can only solve discrete action spaces, we set several
 amplification_constant = 10000 # Since the original power and noise values are sometims negligible, it may cause NAN data. We perform unified amplification for both signal and noise to avoid data type errors
 UAV_power_unit = 100 * amplification_constant # 100mW=20dBm
 NoisePower = 10**(-9) * amplification_constant # noise power
+# ================================ #
+
 
 class SystemModel(object):
     def __init__(
@@ -76,7 +81,7 @@ class SystemModel(object):
         self.Power_unit = UAV_power_unit
         self.Power_allocation_list = self.Power_allocation_list * self.Power_unit
         # data frame to save distance
-        self.Distence = pd.DataFrame(
+        self.Distance = pd.DataFrame(
             np.zeros((self.UAV_number, self.User_number)),
             columns=np.arange(self.User_number).tolist(),)
         # data frame to save pathloss
@@ -126,11 +131,11 @@ class SystemModel(object):
         for i in range(UAVsnumber):
             for j in range(Usersnumber):
                 # calculate Distence betwen UAV i and User j
-                self.Distence.iloc[i,j] = np.linalg.norm(UAV_Position.iloc[:,i]-User_Position.iloc[:,j]) 
-        return self.Distence
+                self.Distance.iloc[i,j] = np.linalg.norm(UAV_Position.iloc[:,i]-User_Position.iloc[:,j]) 
+        return self.Distance
 
 
-    def Get_Propergation_Loss(self,distence_U2K,UAV_Position,UAVsnumber,Usersnumber,f_c): 
+    def Get_Propergation_Loss(self,distance_U2K,UAV_Position,UAVsnumber,Usersnumber,f_c): 
         """
         参考Propagation Model
         this function is for calculating the pathloss between users and UAVs
@@ -148,7 +153,7 @@ class SystemModel(object):
             for j in range(Usersnumber):
                 UAV_Hight=UAV_Position.iloc[2,i]
                 # calculate distance
-                D_H = np.sqrt(np.square(distence_U2K.iloc[i,j])-np.square(UAV_Hight)) 
+                D_H = np.sqrt(np.square(distance_U2K.iloc[i,j])-np.square(UAV_Hight)) 
                 # calculate the possibility of LOS/NLOS
                 d_0 = np.max([(294.05*math.log(UAV_Hight,10)-432.94),18])
                 p_1 = 233.98*math.log(UAV_Hight,10) - 0.95
@@ -160,8 +165,8 @@ class SystemModel(object):
                     P_Los = 1
                 P_NLos = 1 - P_Los
                 # calculate the passloss for LOS/NOLS
-                L_Los = 30.9 + (22.25-0.5*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10) + 20*math.log(f_c,10)
-                L_NLos = np.max([L_Los,32.4+(43.2-7.6*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10)+20*math.log(f_c,10)])
+                L_Los = 30.9 + (22.25-0.5*math.log(UAV_Hight,10))*math.log(distance_U2K.iloc[i,j],10) + 20*math.log(f_c,10)
+                L_NLos = np.max([L_Los,32.4+(43.2-7.6*math.log(UAV_Hight,10))*math.log(distance_U2K.iloc[i,j],10)+20*math.log(f_c,10)])
                 # average pathloss
                 Avg_Los = P_Los*L_Los + P_NLos*L_NLos 
                 gain = np.random.rayleigh(scale=1, size=None)*pow(10,(-Avg_Los/10)) # random fading
@@ -254,6 +259,7 @@ class SystemModel(object):
         """
         创建状态
         Create state, pay attention we need to ensure UAVs and users who are making decisions always input at the fixed neural node to achieve MDQN
+        状态包含 UAV位置和CSI信息
         Args:
             serving_UAV (int): 选择的UAV
             User_association_list (array): 用户关联数组
@@ -338,7 +344,7 @@ def main():
     Episodes_number = 150 # total episodes number
     Test_episodes_number = 30  # number of test episodes
     T = 60 #total time slots (steps)
-    T_AS = np.arange(0, T, 200) # time solt of user association, current setting indicate 1
+    T_AS = np.arange(0, T, 200) # time slot of user association, current setting indicate 1
     print("time slots",T_AS)
     env = SystemModel()
     agent = DQN(UserNumberPerCell,NumberOfUAVs,NumberOfUsers) # create an agent
@@ -353,25 +359,24 @@ def main():
         env.Reset_position()
         #if Epsilon > 0.05: # determine the minimum Epsilon value
         Epsilon -= 0.9 / (Episodes_number - Test_episodes_number) # decaying epsilon
-        p=0 # punishment counter
+        p = 0 # punishment counter
         for t in range(T):
             # 原来的数组是[0]，结合代码就相当于每个episode刚开始的时候做一次
             if t in T_AS:
-                User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
+                User_AS_List = ua.kmeans(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
             for UAV in range(NumberOfUAVs):
                 # 1.计算距离，计算信道衰落，计算信道增益，计算状态，Agent预测动作，执行动作
-                Distence_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
-                PL_for_CG = env.Get_Propergation_Loss(Distence_CG, env.PositionOfUAVs, NumberOfUAVs, NumberOfUsers, F_c) # Calculate the pathloss for each UAV-users
+                Distance_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
+                PL_for_CG = env.Get_Propergation_Loss(Distance_CG, env.PositionOfUAVs, NumberOfUAVs, NumberOfUsers, F_c) # Calculate the pathloss for each UAV-users
                 CG = env.Get_Channel_Gain_OMA(NumberOfUsers, PL_for_CG, User_AS_List,NoisePower)  # Calculate the channel gain for each UAV-users
                 State = env.Create_state_Noposition(UAV,User_AS_List,CG) # Generate S_t according to UAVs location and channels
                 action_name = agent.Choose_action(State,Epsilon) # agent calculate action
                 env.take_action(action_name,UAV,User_AS_List) # take action in the environment
                 # 2.计算执行动作之后的情况
-                Distence = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
-                P_L = env.Get_Propergation_Loss(Distence,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
+                Distance = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
+                P_L = env.Get_Propergation_Loss(Distance,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
                 SINR=env.Get_SINR_OMA(NumberOfUAVs,NumberOfUsers,P_L,User_AS_List,NoisePower) # calculate SINR for users
                 DataRate, SumRate,WorstuserRate = env.Calculate_Datarate(SINR, NumberOfUsers, Bandwidth) # calculate data rate, sum rate and the worstusers data rate
-                #print(DataRate,'Sumrate==',SumRate,'\nWorstuserRate=',WorstuserRate)
                 # calculate raward based on sum rate and check if users meet the QOS requirement
                 # 3.计算Reward
                 Reward = SumRate
@@ -392,8 +397,6 @@ def main():
                 agent.train() #train the DQN agent
                 # 移动用户
                 env.User_randomMove(MAXUserspeed,NumberOfUsers) # move users
-                # print('UE',env.PositionOfUsers) #检查UE位置
-                # print('UAV',env.PositionOfUAVs) #检查UAV位置
                 # save data after all UAVs moved
                 if UAV==(NumberOfUAVs-1):
                     Rate_during_t = copy.deepcopy(SumRate)

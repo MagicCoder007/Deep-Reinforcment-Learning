@@ -24,7 +24,7 @@ class DQN(object):
         self.NumberOfUAVs = NumberOfUAVs
         self.NumberOfUsers = NumberOfUsers
         
-        self.model = self.create_model() # crate model
+        self.model = self.create_model() # create model
         self.target_model = self.create_model() # crate target model
 
     def create_model(self):

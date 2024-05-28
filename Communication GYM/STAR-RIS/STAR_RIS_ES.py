@@ -1,34 +1,17 @@
-from gym import spaces
-# import Paras
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+'''
+@文件        :STAR_RIS_ES.py
+@说明        :
+@时间        :2024/05/28 10:48:01
+@作者        :Ruikang Zhong r.zhong@qmul.ac.uk
+@版本        :1.0
+'''
 import copy
 import math
-import os
-import glob
-import time
-from datetime import datetime
-
-import torch
 import numpy as np
-import gym
+import gymnasium as gym
 
-from gym import spaces
-import copy
-import math
-import os
-import glob
-import time
-from datetime import datetime
-
-
-
-
-
-
-"""
-STAR-RIS environment for DRL agent training 
-Author: Ruikang Zhong 
-E-mail: r.zhong@qmul.ac.uk
-"""
 class STAR_RIS_Env(gym.Env):
     metadata = {'render.modes': ['console']}
     def __init__(self):
@@ -99,12 +82,12 @@ class STAR_RIS_Env(gym.Env):
         # self.action_num = 4
         # self.action_array = np.ones(self.action_dim) * self.action_num
         # self.action_space = spaces.MultiDiscrete(self.action_array)
-        self.action_space = spaces.Box(low=0, high=1,
+        self.action_space = gym.spaces.Box(low=0, high=1,
                                         shape=(self.action_dim,), dtype=np.float32)
         # The observation will be the coordinate of the agent
         # this can be described both by Discrete and Box space
         self.num_states = 2*self.M * self.K + 2*self.N * self.K + 2*self.M*self.N
-        self.observation_space = spaces.Box(low=0, high=100,
+        self.observation_space = gym.spaces.Box(low=0, high=100,
                                         shape=(self.num_states,), dtype=np.float32)
 
 

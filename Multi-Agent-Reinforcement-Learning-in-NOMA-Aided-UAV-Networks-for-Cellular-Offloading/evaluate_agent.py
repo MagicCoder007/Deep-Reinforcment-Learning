@@ -15,6 +15,12 @@ import copy
 from tensorflow import keras
 
 def evaluate_OMA(name):
+    """
+    评估OMA模型
+
+    Args:
+        name (str): 模型名称
+    """
     model = keras.models.load_model("model/"+name)
     env = oma.SystemModel() # create an enviroomaent
     User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,oma.NumberOfUAVs, oma.NumberOfUsers) # user association after each period because users are moving
@@ -43,6 +49,12 @@ def evaluate_OMA(name):
     print('Through_put=',Through_put)
 
 def evaluate_NOMA(name):
+    """
+    评估NOMA模型
+
+    Args:
+        name (str): 模型名称
+    """
     model = keras.models.load_model("model/"+name)
     env = noma.SystemModel() # create an environomaent
     User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,noma.NumberOfUAVs, noma.NumberOfUsers) # user association after each period because users are moving

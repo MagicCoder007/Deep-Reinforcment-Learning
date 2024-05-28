@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 '''
-@文件        :Kmeans.py
+@文件        :user_association.py
 @说明        :使用kmeans算法来完成用户关联
 @时间        :2023/11/27 16:38:01
-@作者        :leo
+@修改        :leo
 @版本        :1.0
 '''
 import numpy as np
@@ -12,9 +12,10 @@ import pandas as pd
 from sklearn.cluster import KMeans
 import warnings
 
-def User_association(UAV_Position,User_Position,UAVsnumber, Usersnumber):
+def kmeans(UAV_Position,User_Position,UAVsnumber, Usersnumber):
     """
-    用户关联
+    用户关联    
+    this function is for user association
 
     Args:
         UAV_Position (array): 三维UAV的位置
@@ -23,9 +24,8 @@ def User_association(UAV_Position,User_Position,UAVsnumber, Usersnumber):
         Usersnumber (int): 用户的数量
 
     Returns:
-        df array: 用户管理数组
+        df array: 用户关联数组
     """
-    # this function is for user association
     User_Position_array = np.zeros([Usersnumber,2])
     # convert data type
     # User_Position是df，因此需要转换成np
@@ -96,6 +96,6 @@ def User_association(UAV_Position,User_Position,UAVsnumber, Usersnumber):
             User_association_list.iloc[0,Servied_users_list[i]] = int(UAV_name) # fill UAV names in User_association_list
         User_association_list = User_association_list.astype('int') #converted data type to int
     
-    print(User_association_list.values)
+    # print(User_association_list.values)
 
     return User_association_list

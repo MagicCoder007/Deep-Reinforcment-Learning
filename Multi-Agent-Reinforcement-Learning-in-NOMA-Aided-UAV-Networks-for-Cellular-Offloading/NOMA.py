@@ -1,17 +1,37 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+'''
+@文件        :NOMA.py
+@说明        :NOMA方式
+@时间        :2024/05/27 20:27:49
+@修改        :leo
+@版本        :1.0
+'''
+
 import numpy as np
 import math
 import pandas as pd
 import warnings
 import copy
 import matplotlib.pyplot as plt
-import Kmeans as km
+import user_association as ua
 from DQN import DQN
 import pathlib
 
 
+# ********************************** #
+# 
+# ********************************** #
 
+# ================================ #
+# 定义一些常数
 #random seed control if necessary
 #np.random.seed(1)
+# 当前的目录
+path = pathlib.Path(__file__).parent.resolve()
+figure_path = path.joinpath("figure")
+model_path = path.joinpath("model")
+data_path = path.joinpath("data")
 
 # set up service area range
 ServiceZone_X = 500
@@ -25,18 +45,26 @@ UAV_Speed = 5 #m/s
 UserNumberPerCell = 2 # user number per UAV
 NumberOfUAVs = 3 # number of UAVs
 NumberOfCells = NumberOfUAVs # Each UAV is responsible for one cell
-NumberOfUsers = NumberOfUAVs*UserNumberPerCell
+NumberOfUsers = NumberOfUAVs * UserNumberPerCell
 F_c = 2 # carrier frequency/GHz
 # NOMA比OMA的带宽翻倍了
 Bandwidth = 30 #khz
 R_require = 0.1 # QoS data rate requirement kb
 Power_level= 3 # Since DQN can only solve discrete action spaces, we set several discrete power gears, Please note that the change of power leveal will require a reset on the action space
 
+# 仅仅是为了数值可计算，因此功率和噪声都乘以一个常数
 amplification_constant = 10000 # Since the original power and noise values are sometims negligible, it may cause NAN data. We perform unified amplification to avoid data type errors
 UAV_power_unit = 100 * amplification_constant # 100mW=20dBm
 NoisePower = 10**(-9) * amplification_constant # noise power
+# ================================ #
 
 class SystemModel(object):
+    """
+    系统模型相关的属性和函数封装在类中
+
+    Args:
+        object (_type_): _description_
+    """
     def __init__(
             self,
     ):
@@ -55,7 +83,7 @@ class SystemModel(object):
         )
         self.PositionOfUAVs.iloc[0, :] = [100, 200, 400]  # UAVs' initial x
         self.PositionOfUAVs.iloc[1, :] = [100, 400, 200]  # UAVs' initial y
-        self.PositionOfUAVs.iloc[2, :] = [100, 100,100]  # UAVs' initial z
+        self.PositionOfUAVs.iloc[2, :] = [100, 100, 100]  # UAVs' initial z
 
         # Initialize users and users' location
         self.User_number = NumberOfUsers
@@ -86,7 +114,7 @@ class SystemModel(object):
         self.Power_allocation_list = self.Power_allocation_list * self.Power_unit
 
         # data frame to save distance
-        self.Distence = pd.DataFrame(
+        self.Distance = pd.DataFrame(
             np.zeros((self.UAV_number, self.User_number)),
             columns=np.arange(self.User_number).tolist(),)
 
@@ -111,7 +139,7 @@ class SystemModel(object):
             columns=np.arange(self.User_number).tolist(),)
 
         # Create a data frame to save datarate
-        self.Daterate = pd.DataFrame(
+        self.Datarate = pd.DataFrame(
         np.zeros((1, self.User_number)),
         columns=np.arange(self.User_number).tolist(),)
 
@@ -120,12 +148,20 @@ class SystemModel(object):
 
 
     def User_randomMove(self,MAXspeed,NumberofUsers):
+        """
+        用户随机移动
+
+        Args:
+            MAXspeed (float): 最大速率
+            NumberofUsers (int): 用户数量
+        """
         self.PositionOfUsers.iloc[[0,1],:] += np.random.randn(2,NumberofUsers)*MAXspeed # users random move
         return
 
 
     def Get_Distance_U2K(self,UAV_Position,User_Position,UAVsnumber,Usersnumber):
         """
+        计算UAV和用户之间的距离
         this function is for calculating the distance between users and UAVs
         Args:
             UAV_Position (array): UAV位置
@@ -137,12 +173,12 @@ class SystemModel(object):
         """
         for i in range(UAVsnumber):
             for j in range(Usersnumber):
-                self.Distence.iloc[i,j] = np.linalg.norm(UAV_Position.iloc[:,i]-User_Position.iloc[:,j]) # calculate Distence betwen UAV i and User j
+                self.Distance.iloc[i,j] = np.linalg.norm(UAV_Position.iloc[:,i]-User_Position.iloc[:,j]) # calculate Distance betwen UAV i and User j
 
-        return self.Distence
+        return self.Distance
 
 
-    def Get_Propergation_Loss(self,distence_U2K,UAV_Position,UAVsnumber,Usersnumber,f_c):
+    def Get_Propergation_Loss(self,distance_U2K,UAV_Position,UAVsnumber,Usersnumber,f_c):
         """
         参考Propagation Model
         this function is for calculating the pathloss between users and UAVs
@@ -159,10 +195,10 @@ class SystemModel(object):
         for i in range(UAVsnumber):# Calculate average loss for each user,  this pathloss model is for 22.5m<h<300m d(2d)<4km
             for j in range(Usersnumber):
                 UAV_Hight=UAV_Position.iloc[2,i]
-                D_H = np.sqrt(np.square(distence_U2K.iloc[i,j])-np.square(UAV_Hight)) # calculate distance
+                D_H = np.sqrt(np.square(distance_U2K.iloc[i,j])-np.square(UAV_Hight)) # calculate distance
                 # calculate the possibility of LOS/NLOS
                 d_0 = np.max([(294.05*math.log(UAV_Hight,10)-432.94),18])
-                p_1 = 233.98*math.log(UAV_Hight,10) - 0.95
+                p_1 = 233.98 * math.log(UAV_Hight,10) - 0.95
                 if D_H <= d_0:
                     P_Los = 1.0
                 else:
@@ -170,22 +206,21 @@ class SystemModel(object):
                 if P_Los>1:
                     P_Los = 1
                 P_NLos = 1 - P_Los
-                #calculate the passlos for LOS/NOLS
-                L_Los = 30.9 + (22.25-0.5*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10) + 20*math.log(f_c,10)
-                L_NLos = np.max([L_Los,32.4+(43.2-7.6*math.log(UAV_Hight,10))*math.log(distence_U2K.iloc[i,j],10)+20*math.log(f_c,10)])
+                # calculate the passloss for LOS/NOLS
+                L_Los = 30.9 + (22.25-0.5*math.log(UAV_Hight,10))*math.log(distance_U2K.iloc[i,j],10) + 20*math.log(f_c,10)
+                L_NLos = np.max([L_Los,32.4+(43.2-7.6*math.log(UAV_Hight,10))*math.log(distance_U2K.iloc[i,j],10)+20*math.log(f_c,10)])
                 Avg_Los = P_Los*L_Los + P_NLos*L_NLos # average pathloss
                 gain = np.random.rayleigh(scale=1, size=None)*pow(10,(-Avg_Los/10)) # random fading
                 self.Propergation_Loss.iloc[i,j] = gain #save pathloss
         return self.Propergation_Loss
 
 
-    def Get_Channel_Gain_NOMA(self,UAVsnumber,Usersnumber,PropergationLosslist,UserAssociationlist,Noise_Power):
+    def Get_Channel_Gain_NOMA(self,Usersnumber,PropergationLosslist,UserAssociationlist,Noise_Power):
         """
         计算每个用户的SINR值
         This function is to calculate the SINR for every users
 
         Args:
-            UAVsnumber (int): UAV的数量
             Usersnumber (int): 用户数量
             PropergationLosslist (array): 传播损失数组
             UserAssociationlist (array): 用户关联数组
@@ -201,38 +236,9 @@ class SystemModel(object):
             self.ChannelGain_list.iloc[0, j] = ChannelGain # save channel gain
         return self.ChannelGain_list
 
-
-    def Get_Eq_CG(self,Usersnumber,PropergationLosslist,UserAssociationlist,Noise_Power):
-        """
-        This function is used to calculate the equivalent channel gain to determine SIC decoding order
-        Args:
-            UAVsnumber (int): UAV的数量
-            Usersnumber (int): 用户数量
-            PropergationLosslist (array): 传播损失数组
-            UserAssociationlist (array): 用户关联数组
-            Noise_Power (float): 噪声功率
-        Returns:
-            array: 信道增益数组
-        """
-        for j in range(Usersnumber):  # j represents the interfered user,  'i_Server_UAV' represents the uav providing the service 'j_idx' represents the other users
-            i_Server_UAV = UserAssociationlist.iloc[0, j]
-            Signal_power = 100 * self.amplification_constant * PropergationLosslist.iloc[0, j] # Assuming unit power to calculate equivalent channel gain
-            I_inter_cluster = 0
-            for j_idx in range(Usersnumber):  # calculate Interference for user j
-                if UserAssociationlist.iloc[0, j_idx] == i_Server_UAV: # if the user j_idx is user j, pass
-                    pass
-                else:
-                    Inter_UAV = UserAssociationlist.iloc[0, j_idx]  # find the inter UAV connected with user j_idx
-                    I_inter_cluster = I_inter_cluster + (
-                            100 * self.amplification_constant * PropergationLosslist.iloc[Inter_UAV, j]) # calculte and add inter cluster interference
-            Eq_CG = Signal_power / (I_inter_cluster + Noise_Power) # calculate equivalent channel gain for user j
-            self.Eq_CG_list.iloc[0, j] = Eq_CG
-        return self.Eq_CG_list
-
-
     def Get_SINR_NNOMA(self,Usersnumber,PropergationLosslist,UserAssociationlist,ChannelGain_list,Noise_Power):
         """
-        获取NOMA SINR数组
+        获取所有用户的SINR数组（NOMA方式）
 
         Args:
             Usersnumber (int): 用户的数量
@@ -267,9 +273,9 @@ class SystemModel(object):
         """
         计算速率        
         Args:
-            SINRlist (_type_): SINR数组
-            Usersnumber (_type_): 用户数量
-            B (_type_): 带宽
+            SINRlist (array): SINR数组
+            Usersnumber (int): 用户数量
+            B (int): 带宽
 
         Returns:
             array:每个用户的速率 
@@ -278,12 +284,11 @@ class SystemModel(object):
         """
         for j in range(Usersnumber):
             if SINRlist.iloc[0,j] <=0:
-                print(SINRlist)
-                warnings.warn('SINR wrong') # A data type error may occur when the data rate is too small, thus we ste up this alarm
-            self.Daterate.iloc[0,j] = B*math.log((1+SINRlist.iloc[0,j]),2)
-        SumDataRate = sum(self.Daterate.iloc[0,:])
-        Worst_user_rate = min(self.Daterate.iloc[0,:])
-        return self.Daterate,SumDataRate,Worst_user_rate
+                warnings.warn('SINR wrong') # A data type error may occur when the data rate is too small, thus we set up this alarm
+            self.Datarate.iloc[0,j] = B*math.log((1+SINRlist.iloc[0,j]),2)
+        SumDataRate = sum(self.Datarate.iloc[0,:])
+        Worst_user_rate = min(self.Datarate.iloc[0,:])
+        return self.Datarate,SumDataRate,Worst_user_rate
 
 
     def Reset_position(self): # save initial state for environment reset
@@ -298,6 +303,7 @@ class SystemModel(object):
     def Create_state_Noposition(self,serving_UAV,User_association_list,User_Channel_Gain):
         """
         创建状态
+        状态包括UAV的位置和CSI信息
 
         Args:
             serving_UAV (int): 选择的UAV
@@ -329,6 +335,16 @@ class SystemModel(object):
 
 
     def take_action_NOMA(self,action_number,acting_UAV,User_asso_list,ChannelGain_list):
+        """
+        执行Agent的动作
+        相当于将动作拆分成了UAV移动和功率分配
+
+        Args:
+            action_number (int): 当前agent选择的动作
+            acting_UAV (int): 当前执行的UAV
+            User_asso_list (_type_): 用户关联数组
+            ChannelGain_list (_type_): 信道增益数组
+        """
         UAV_move_direction = action_number % 7  #UAV has seven positional actions
         if UAV_move_direction == 0:# UAV moves along the positive half axis of the x-axis
             self.PositionOfUAVs.iloc[0,acting_UAV] += self.UAVspeed
@@ -394,59 +410,62 @@ def main():
     Episodes_number = 150 # total episodes number
     Test_episodes_number = 30  # number of test episodes
     T = 60 #total time slots (steps)
+    # 因为200 > T，所以T_AS = [0]
     T_AS = np.arange(0, T, 200) # time solt of user association, current setting indicate 1
     # T_AS = np.arange(0, T, 0.25) # time solt of user association, current setting indicate 1
     print(T_AS)
-    env = SystemModel() # crate an environment
+    env = SystemModel() # create an environment
     agent = DQN(UserNumberPerCell,NumberOfUAVs,NumberOfUsers) # crate an agent
     Epsilon = 0.9
     datarate_seq = np.zeros(T) # Initialize memory to store sum data rate
     WorstuserRate_seq = np.zeros(T) # Initialize memory to store data rate of the worst user
     Through_put_seq = np.zeros(Episodes_number) # Initialize memory to store throughput
     Worstuser_TP_seq = np.zeros(Episodes_number) # Initialize memory to store throughput of the worst user
-    path = pathlib.Path(__file__).parent.resolve()
-    agent.save(path.joinpath("model").joinpath("NOMA_init"))
+    #保存初始化的模型
+    agent.save(model_path.joinpath("NOMA_init"))
     for episode in range(Episodes_number):
         env.Reset_position()
         #if Epsilon > 0.05: # determine the minimum Epsilon value
         Epsilon -= 0.9 / (Episodes_number - Test_episodes_number) # decaying epsilon
-        p=0 # punishment counter
+        punishment_counter = 0 # punishment counter
         for t in range(T):
             if t in T_AS:
-                #实际只执行了一次
-                User_AS_List = km.User_association(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
+                # 获得用户关联，实际只执行了一次
+                User_AS_List = ua.kmeans(env.PositionOfUAVs, env.PositionOfUsers,NumberOfUAVs, NumberOfUsers) # user association after each period because users are moving
             for UAV in range(NumberOfUAVs):
-                Distence_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
-                PL_for_CG = env.Get_Propergation_Loss(Distence_CG,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) # Calculate the pathloss for each UAV-users
-                CG = env.Get_Channel_Gain_NOMA(NumberOfUAVs, NumberOfUsers, PL_for_CG, User_AS_List,NoisePower) # Calculate the channel gain for each UAV-users
-                Eq_CG = CG
-                # Eq_CG = env.Get_Channel_Gain_NOMA(NumberOfUAVs, NumberOfUsers, PL_for_CG, User_AS_List,NoisePower) # Calculate the equivalent channel gain to determine the decoding order
+                # 1.计算距离，计算信道衰落，计算信道增益，计算状态，Agent预测动作，执行动作
+                Distance_CG = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # Calculate the distance for each UAV-users
+                PL_for_CG = env.Get_Propergation_Loss(Distance_CG,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) # Calculate the pathloss for each UAV-users
+                CG = env.Get_Channel_Gain_NOMA(NumberOfUsers, PL_for_CG, User_AS_List,NoisePower) # Calculate the channel gain for each UAV-users
                 State = env.Create_state_Noposition(UAV,User_AS_List,CG) # Generate S_t according to UAVs location and channels
                 action_name = agent.Choose_action(State,Epsilon) # agent calculate action
-                env.take_action_NOMA(action_name,UAV,User_AS_List,Eq_CG) # take action in the environment
-                Distence = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
-                P_L = env.Get_Propergation_Loss(Distence,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
-                SINR=env.Get_SINR_NNOMA(NumberOfUsers,P_L,User_AS_List,Eq_CG,NoisePower) # calculate SINR for users
+                env.take_action_NOMA(action_name,UAV,User_AS_List,CG) # take action in the environment
+                # 2.计算执行动作之后的情况
+                Distance = env.Get_Distance_U2K(env.PositionOfUAVs, env.PositionOfUsers, NumberOfUAVs, NumberOfUsers) # after taking actions, calculate the distance again
+                P_L = env.Get_Propergation_Loss(Distance,env.PositionOfUAVs,NumberOfUAVs, NumberOfUsers, F_c) #calculate the pathloss
+                SINR = env.Get_SINR_NNOMA(NumberOfUsers,P_L,User_AS_List,CG,NoisePower) # calculate SINR for users
                 DataRate,SumRate,WorstuserRate = env.Calculate_Datarate(SINR, NumberOfUsers, Bandwidth) # calculate data rate, sum rate and the worstusers data rate
-                #print(DataRate,'\nSumrate==',SumRate,'\nWorstuserRate=',WorstuserRate)
-                # calculate raward based on sum rate and check if users meet the QOS requirement
+                # calculate reward based on sum rate and check if users meet the QoS requirement
+                # 3.计算Reward
                 Reward = SumRate
                 if WorstuserRate < R_require:
                     #Reward = Reward/2
                     Reward = -1
-                    p+=1
-                CG_next = env.Get_Channel_Gain_NOMA(NumberOfUAVs, NumberOfUsers, P_L, User_AS_List,NoisePower)  # Calculate the equivalent channel gain for S_{t+1}
+                    punishment_counter+=1
+                # 4.下一个状态情况
+                CG_next = env.Get_Channel_Gain_NOMA(NumberOfUsers, P_L, User_AS_List,NoisePower)  # Calculate the equivalent channel gain for S_{t+1}
                 Next_state = env.Create_state_Noposition(UAV,User_AS_List,CG_next) # Generate S_{t+1}
+                # 5.组织经验
                 #copy data for (S_t,A_t,S_t+1,R_t)
                 State_for_memory = copy.deepcopy(State[0])
                 Action_for_memory = copy.deepcopy(action_name)
                 Next_state_for_memory = copy.deepcopy(Next_state[0])
                 Reward_for_memory = copy.deepcopy(Reward)
+                # 存储并训练
                 agent.remember(State_for_memory, Action_for_memory, Next_state_for_memory, Reward_for_memory) #save the MDP transitions as (S_t,A_t,S_t+1,R_t)
-                agent.train() #train the DQN agent
+                agent.train() # train the DQN agent
+                # 移动用户
                 env.User_randomMove(MAXUserspeed,NumberOfUsers) # move users
-                # print('UE',env.PositionOfUsers) #check user position
-                # print('UAV',env.PositionOfUAVs) #check UAV position
                 # save data after all UAVs moved
                 if UAV==(NumberOfUAVs-1):
                     Rate_during_t = copy.deepcopy(SumRate)
@@ -456,21 +475,22 @@ def main():
         Worstuser_TP = np.sum(WorstuserRate_seq) # calculate throughput of the worst user for an episode
         Through_put_seq[episode] = Through_put # save throughput for an episode
         Worstuser_TP_seq[episode] = Worstuser_TP # save throughput of the worst user for an episode
-        print('Episode=',episode,'Epsilon=',Epsilon,'Punishment=',p,'Through_put=',Through_put)
-    agent.save(path.joinpath("model").joinpath("NOMA_agent"))
+        print('Episode =',episode,'Epsilon =',Epsilon,'Punishment =',punishment_counter,'Through_put =',Through_put)
+    #保存学习后的模型
+    agent.save(model_path.joinpath("NOMA_agent"))
     # save data
-    np.save("data/Through_put_NOMA.npy", Through_put_seq)
-    np.save("data/WorstUser_Through_put_NOMA.npy", Worstuser_TP_seq)
-    np.save("data/Total Data Rate_NOMA.npy", datarate_seq)
-    np.save("data/PositionOfUsers_end_NOMA.npy",env.PositionOfUsers)
-    np.save("data/PositionOfUAVs_end_NOMA.npy", env.PositionOfUAVs)
+    np.save(data_path.joinpath("Through_put_NOMA.npy"), Through_put_seq)
+    np.save(data_path.joinpath("WorstUser_Through_put_NOMA.npy"), Worstuser_TP_seq)
+    np.save(data_path.joinpath("Total Data Rate_NOMA.npy"), datarate_seq)
+    np.save(data_path.joinpath("PositionOfUsers_end_NOMA.npy"),env.PositionOfUsers)
+    np.save(data_path.joinpath("PositionOfUAVs_end_NOMA.npy"), env.PositionOfUAVs)
 
     # print throughput
     x_axis = range(1,Episodes_number+1)
     plt.plot(x_axis, Through_put_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Throughput')
-    plt.savefig('figure/Throughput_NOMA.png')
+    plt.savefig(figure_path.joinpath("Throughput_NOMA.png"))
     plt.show()
 
     # print throughput of worst users
@@ -478,7 +498,7 @@ def main():
     plt.plot(x_axis, Worstuser_TP_seq)
     plt.xlabel('Episodes')
     plt.ylabel('Throughput of Worst User')
-    plt.savefig('figure/WorstUser_Through_put_NOMA.png')
+    plt.savefig(figure_path.joinpath("WorstUser_Through_put_NOMA.png"))
     plt.show()
 
     # print datarate of the last episode(test episode when Epsilon = 0)
@@ -486,7 +506,7 @@ def main():
     plt.plot(x_axis_T, datarate_seq)
     plt.xlabel('Steps in test epsodes')
     plt.ylabel('Data Rate of System')
-    plt.savefig('figure/Total Data Rate_NOMA.png')
+    plt.savefig(figure_path.joinpath("Total_Data_Rate_NOMA.png"))
     plt.show()
 
 if __name__ == '__main__':
